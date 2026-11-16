@@ -711,6 +711,71 @@
 		schedule();
 	};
 
+	/* LuCI's legacy realtime plots cache their pixel width at initialization.
+	 * Fit their existing coordinates to the current viewport without changing
+	 * samples, polling or the time window. Only curves and time-grid positions
+	 * scale horizontally; text and stroke widths retain their original size. */
+	const realtimeRoots = new WeakSet();
+	C.initRealtimeCharts = function (root) {
+		if (!root || realtimeRoots.has(root) ||
+			!/(?:^|-)status-realtime(?:-|$)/.test(document.body.getAttribute('data-page') || '')) return;
+		realtimeRoots.add(root);
+		const graphs = new Set();
+		let pending = false;
+		const schedule = () => {
+			if (pending) return;
+			pending = true;
+			requestAnimationFrame(sync);
+		};
+		const resize = window.ResizeObserver ? new ResizeObserver(schedule) : null;
+		function sync() {
+			pending = false;
+			for (const svg of graphs) {
+				if (!root.contains(svg)) {
+					if (resize) resize.unobserve(svg);
+					graphs.delete(svg);
+				}
+			}
+			root.querySelectorAll('#view svg').forEach((svg) => {
+				// Leave modern responsive SVGs and unrelated plugin charts alone.
+				if (svg.hasAttribute('viewBox') || svg.getAttribute('width') !== '100%' ||
+					!svg.querySelector('#label_25') || !svg.querySelector('#label_50') || !svg.querySelector('#label_75')) return;
+				if (!graphs.has(svg)) {
+					graphs.add(svg);
+					if (resize) resize.observe(svg);
+				}
+				const lines = Array.from(svg.children).filter((el) => el.localName === 'polyline');
+				const drawn = lines.find((el) => el.points.numberOfItems > 1);
+				if (!drawn || !svg.clientWidth) return;
+				// LuCI closes each filled curve at (cached width, baseline).
+				const width = drawn.points.getItem(drawn.points.numberOfItems - 1).x;
+				if (!(width > 0)) return;
+				const scale = svg.clientWidth / width;
+				for (const el of svg.children) {
+					const vertical = el.localName === 'line' &&
+						el.getAttribute('x1') === el.getAttribute('x2');
+					if (el.localName === 'polyline' || vertical) {
+						el.setAttribute('transform', 'scale(' + scale + ' 1)');
+						el.setAttribute('vector-effect', 'non-scaling-stroke');
+					}
+					else if (el.localName === 'text' && !el.id && el.x.baseVal.numberOfItems) {
+						const x = el.x.baseVal.getItem(0).value;
+						el.setAttribute('transform', 'translate(' + (x * (scale - 1)) + ' 0)');
+					}
+				}
+			});
+		}
+		const watch = new MutationObserver(schedule);
+		watch.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['points'] });
+		window.addEventListener('resize', schedule, { passive: true });
+		if (!resize) {
+			// Older browsers: cover sidebar transitions and reduced-motion changes.
+			watch.observe(rootEl, { attributes: true, attributeFilter: ['class'] });
+			window.addEventListener('transitionend', schedule);
+		}
+		schedule();
+	};
+
 	/* ------------------------------------------------------------------
 	 * Language switch (rendered once the installed catalogues are known)
 	 * ------------------------------------------------------------------ */
@@ -774,6 +839,7 @@
 	C.initShell = function (opts) {
 		opts = opts || {};
 		C.initTabs(document.getElementById('maincontent'));
+		C.initRealtimeCharts(document.getElementById('maincontent'));
 		C.initLeaseAvatars(document.getElementById('maincontent'));
 		const body = document.body;
 		const burger = document.getElementById('cb-burger');

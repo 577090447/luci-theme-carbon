@@ -17,6 +17,8 @@ The browser suite also checks every bundled catalogue in the sidebar, the custom
 
 Device regressions cover DHCP-disabled side routers with static or DHCP-client LAN, failed DHCP RPC calls, retained leases, gateway labels, and separate static WAN neighbours. These use the production dashboard with simulated provider responses. `CARBON_TEST_BROWSER` can point to an installed Chromium executable instead of Playwright's bundled browser. On a real router, also verify ARP reads after logging out and back in following an upgrade; an older session may lack the dashboard permissions. An IPv6-only device without a lease or local Wi-Fi association is not discoverable: this provider reads IPv4 ARP, while IPv6 addresses come from leases and host hints.
 
+Realtime graph regressions (`node --test tests/browser/realtime.test.js`) execute pinned OpenWrt 24.10 load, bandwidth and connection plotting code with simulated RPC replies. They verify sidebar collapse/expansion, desktop/mobile resizing, continued polling, retained samples, unscaled text, hidden interface charts and the fallback without `ResizeObserver`, against source and minified theme scripts. Modern SVGs with their own `viewBox` and charts outside realtime pages are left alone. On a router, open Status → Realtime Graphs, wait for samples, collapse/expand the sidebar and resize the window; curves and time markers should fill the plot without refreshing the page.
+
 Render the templates with the real ucode runtime:
 
 ```bash
