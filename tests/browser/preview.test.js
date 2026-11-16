@@ -379,6 +379,84 @@ test('DiskMan partition bar stays inside its card on desktop and phone', async (
 	}
 });
 
+/* Styling fixture for LuCI ui.Dropdown's closed/open DOM states. The menu
+   stays inside its table cell, including plugins without .cbi-value-field. */
+function tableDropdownFixture(mount, tag, field, appearance) {
+	const row = tag === 'table' ? 'tr' : 'div';
+	const cell = tag === 'table' ? 'td' : 'div';
+	return `<!doctype html><html data-darkmode="${appearance === 'dark'}"><head><meta charset="utf-8">
+		<link rel="stylesheet" href="/${mount}/htdocs/luci-static/carbon/carbon.css">
+		</head><body data-page="admin-system-diskman-disks"><main id="maincontent" style="padding:24px">
+		<div class="cbi-section"><${tag} class="table cbi-section-table">
+		<${row} class="tr"><${cell} class="td">/dev/nvme0n1p1 · /boot</${cell}></${row}>
+		<${row} class="tr"><${cell} class="td${field ? ' cbi-value-field' : ''}">
+		<div id="mount-device" class="cbi-dropdown" tabindex="0"><ul>
+		<li selected="" placeholder="" display="0" data-value="">-- Please choose --</li>
+		<li data-value="/dev/sda1">/dev/sda1</li><li data-value="/dev/sdb1">/dev/sdb1</li>
+		</ul><span class="open">▾</span></div>
+		</${cell}></${row}></${tag}></div>
+		<div class="cbi-section"><h3>Create</h3><div class="cbi-section-node">RAID</div></div>
+		</main></body></html>`;
+}
+
+test('table dropdown options escape the last row and remain clickable', async () => {
+	for (const mount of ['src', 'min']) {
+		for (const width of [1280, 390]) {
+			for (const appearance of ['light', 'dark']) {
+				for (const [tag, field] of [['table', false], ['div', true]]) {
+					const label = `${mount} ${width}px ${appearance} ${tag}`;
+					const { page, context } = await open('/src/preview/index.html', { width, height: 800, appearance });
+					try {
+						await page.setContent(tableDropdownFixture(mount, tag, field, appearance), { waitUntil: 'load' });
+						const closed = await page.locator('.table').boundingBox();
+						await page.locator('#mount-device').evaluate((sb) => {
+							const ul = sb.querySelector('ul');
+							const preview = ul.cloneNode(true);
+							preview.className = 'preview';
+							const height = sb.offsetHeight;
+							// These are the DOM changes made by LuCI's openDropdown().
+							sb.setAttribute('open', '');
+							sb.closest('.cbi-value-field')?.classList.add('cbi-dropdown-open');
+							ul.className = 'dropdown';
+							ul.style.top = height + 'px';
+							ul.style.maxHeight = '300px';
+							sb.insertBefore(preview, ul);
+							ul.addEventListener('click', (event) => { sb.dataset.clicked = event.target.dataset.value; });
+						});
+						const options = await page.locator('ul.dropdown > li[data-value]:not([placeholder])').evaluateAll((items) => items.map((el) => {
+							const rect = el.getBoundingClientRect();
+							return {
+								value: el.dataset.value,
+								belowTable: rect.top > el.closest('.table').getBoundingClientRect().bottom,
+								clickable: el.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2))
+							};
+						}));
+						assert.equal(options.length, 2, label);
+						for (const option of options) {
+							assert.ok(option.belowTable, `${label}: ${option.value} exercises overflow beyond the table`);
+							assert.ok(option.clickable, `${label}: ${option.value} must be visible and receive pointer events`);
+						}
+						await page.locator('ul.dropdown > li[data-value="/dev/sdb1"]').click({ timeout: 2000 });
+						assert.equal(await page.locator('#mount-device').getAttribute('data-clicked'), '/dev/sdb1', label);
+						if (mount === 'src' && tag === 'table')
+							await page.screenshot({ path: path.join(SHOTS, `diskman-dropdown-${appearance}-${width}.png`) });
+						await page.locator('#mount-device').evaluate((sb) => {
+							sb.querySelector('.preview').remove();
+							sb.removeAttribute('open');
+							sb.closest('.cbi-value-field')?.classList.remove('cbi-dropdown-open');
+							const ul = sb.querySelector('ul');
+							ul.className = '';
+							ul.removeAttribute('style');
+						});
+						assert.deepEqual(await page.locator('.table').boundingBox(), closed, `${label}: closing preserves the table layout`);
+						assert.equal(await page.locator('.table').evaluate((el) => getComputedStyle(el).overflow), width > 760 ? 'hidden' : 'visible', `${label}: closed table keeps its original clipping`);
+					} finally { await context.close(); }
+				}
+			}
+		}
+	}
+});
+
 test('settings page: buttons, links, fields and status text share one centre line', async () => {
 	for (const width of [1200, 390]) {
 		const { page, context, errors } = await open('/src/tests/fixtures/settings.html', { width });
