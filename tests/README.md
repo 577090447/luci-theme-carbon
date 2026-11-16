@@ -3,6 +3,7 @@
 | Suite | Command | Needs |
 |---|---|---|
 | Unit: formatting, i18n, devices, ARP, IPv6, brands (`carbon.test.js`) | `npm test` | Node 18+ |
+| Unit: per-device counter deltas, resets, sampling intervals and read-only collector permissions (`traffic-provider.test.js`) | `npm test` | Node 18+ |
 | Unit: LuCI glue — poll pause, language list/switch, menu cache | `npm test` | Node 18+ |
 | Unit: release-notes Markdown | `npm test` | Node 18+ |
 | Unit: settings backend — logo upload validation (types, size, unsafe SVG) (`settings-backend.test.js`; `CARBON_TEST_SH=/bin/dash` for a strict shell) | `npm test` | Node 18+, `sh` |
@@ -34,6 +35,8 @@ Serve the repository locally (for example, `python -m http.server 8080 --bind 12
 Also verify in a disposable LuCI environment: open a multi-page app with an active tab beyond the initial visible area, then navigate between nested pages. When testing a real upgrade, keep the existing login session, install the native package and reload. LuCI uses the package database modification time to invalidate JavaScript module URLs; merely copying files into an already loaded development instance does not reproduce this part of installation.
 
 For signed APK and native IPK updater integration tests, see [online-update.md](../docs/online-update.md#maintainers).
+
+Device-speed browser coverage checks upload/download values, missing records, untouched DHCP lease labels, unsupported collectors, hidden-tab suspension/resume, error backoff and mobile overflow. Real-device checks should compare network/DHCP/firewall/nlbwmon configuration before and after installing the theme, and keep the collector's existing interval and running state. An inactive or absent collector is expected to leave the speed display hidden; do not enable it as part of a theme test.
 
 ## Release notes
 

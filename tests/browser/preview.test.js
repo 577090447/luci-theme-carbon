@@ -134,6 +134,79 @@ test('side-router discovery works without DHCP and distinguishes neighbours, gat
 	}
 });
 
+test('device speeds preserve leases, handle missing data and pause when hidden', async () => {
+	const mock = fs.readFileSync(path.join(ROOT, 'preview', 'mock.js'), 'utf8');
+	const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+	const page = await context.newPage();
+	try {
+		await page.route('**/preview/mock.js', (route) => route.fulfill({ contentType: 'text/javascript', body: mock + '\n(' + (() => {
+			window.trafficReads = 0;
+			window.trafficFail = false;
+			window.CarbonPreview.provider.deviceTraffic = async () => {
+				window.trafficReads++;
+				if (window.trafficFail) throw new Error('collector unavailable');
+				return { interval: 5, columns: ['mac', 'rx_bytes', 'tx_bytes'], data: [
+					['A6:83:E7:2C:91:0F', window.trafficReads * 10240, window.trafficReads * 5120],
+					['00:11:22:33:44:99', 99999999, 99999999]
+				] };
+			};
+		}).toString() + ')();' }));
+		await page.clock.install();
+		await page.goto(base + '/src/preview/index.html?lang=en');
+		await dashboardReady(page);
+		const phone = page.locator('.cb-clients li').filter({ hasText: 'iPhone-15-Pro' });
+		const laptop = page.locator('.cb-clients li').filter({ hasText: 'MacBook-Air' });
+		assert.match(await phone.textContent(), /DHCP lease · 10h 33m left/);
+		assert.equal(await phone.locator('.cb-device-rates').textContent(), '↓ —↑ —');
+		const count = await page.textContent('.cb-count');
+		await page.clock.runFor(5100);
+		assert.match(await phone.locator('.cb-device-rates').textContent(), /↓ [\d.]+ KB\/s↑ [\d.]+ [KB]+\/s/);
+		assert.equal(await laptop.locator('.cb-device-rates').textContent(), '↓ —↑ —');
+		assert.equal(await page.textContent('.cb-count'), count, 'historical traffic cannot create devices');
+		assert.match(await phone.textContent(), /DHCP lease · 10h 33m left/);
+		assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+		await page.screenshot({ path: path.join(SHOTS, 'device-speeds-phone.png'), fullPage: true });
+		await page.evaluate(() => {
+			Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+			document.dispatchEvent(new Event('visibilitychange'));
+		});
+		const reads = await page.evaluate(() => window.trafficReads);
+		await page.clock.runFor(20000);
+		assert.equal(await page.evaluate(() => window.trafficReads), reads);
+		await page.evaluate(() => {
+			Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+			document.dispatchEvent(new Event('visibilitychange'));
+		});
+		await page.clock.runFor(5000);
+		assert.equal(await phone.locator('.cb-device-rates').textContent(), '↓ —↑ —', 'resume establishes a fresh baseline');
+		await page.clock.runFor(5000);
+		assert.match(await phone.locator('.cb-device-rates').textContent(), /KB\/s/);
+		await page.evaluate(() => { window.trafficFail = true; });
+		await page.clock.runFor(5000);
+		assert.equal(await phone.locator('.cb-device-rates').textContent(), '↓ —↑ —');
+		assert.match(await page.textContent('.cb-device-rate-note'), /Unavailable/);
+		const failedReads = await page.evaluate(() => window.trafficReads);
+		await page.clock.runFor(55000);
+		assert.equal(await page.evaluate(() => window.trafficReads), failedReads, 'failed sources back off for a minute');
+		assert.match(await phone.textContent(), /DHCP lease/);
+	} finally { await context.close(); }
+});
+
+test('firmware without a traffic collector keeps the device list without misleading zero speeds', async () => {
+	const mock = fs.readFileSync(path.join(ROOT, 'preview', 'mock.js'), 'utf8');
+	const context = await browser.newContext();
+	const page = await context.newPage();
+	try {
+		await page.route('**/preview/mock.js', (route) => route.fulfill({ contentType: 'text/javascript',
+			body: mock + '\nwindow.CarbonPreview.provider.deviceTraffic = async () => { throw new Error("unsupported"); };' }));
+		await page.goto(base + '/src/preview/index.html?lang=en');
+		await dashboardReady(page);
+		assert.equal(await page.locator('.cb-device-rate-note').isVisible(), false);
+		assert.equal(await page.locator('.cb-device-rates:visible').count(), 0);
+		assert.match(await page.textContent('.cb-clients'), /DHCP lease/);
+	} finally { await context.close(); }
+});
+
 test('navigation regression page passes at phone width', async () => {
 	const { page, context } = await open('/src/tests/navigation.html', { width: 390, height: 844 });
 	await page.waitForFunction(() => /^(PASS|FAIL)/.test(document.title));
