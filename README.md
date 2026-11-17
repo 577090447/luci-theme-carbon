@@ -1,3 +1,4 @@
+
 <div align="center">
 
 <img src="htdocs/luci-static/carbon/logo.svg" width="72" height="72" alt="Carbon">
@@ -17,7 +18,7 @@ A clean, glass-style LuCI theme for OpenWrt — built for everyday users.
 
 **[Live demo](https://mrjoechen.github.io/luci-theme-carbon/) · [English demo](https://mrjoechen.github.io/luci-theme-carbon/?lang=en)**
 
-<video src="https://github.com/user-attachments/assets/fb52e1e2-c27b-4efe-b6a2-9203b22755b5" width="1920" height="1080"></video>
+https://github.com/user-attachments/assets/b78ccf2b-679e-459b-88ea-b4f82da6e03f
 
 </div>
 
