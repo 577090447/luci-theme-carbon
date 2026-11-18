@@ -7,8 +7,8 @@
 'require carbon.markdown as markdown';
 
 /*
- * System → Carbon Theme Settings. Every section talks to the
- * luci.carbon_update rpcd backend; status() returns what all of them show.
+ * System → Carbon Theme Settings. ONLINE UPGRADE DISABLED
+ * Still keep logo & mirror config
  */
 const call = (method, params) => rpc.declare({ object: 'luci.carbon_update', method: method, params: params, expect: { '': {} }, raise: true });
 const status = call('status');
@@ -167,7 +167,7 @@ function mirrorSection(data) {
 			if (result.error) state.textContent = message(result.error);
 			else {
 				input.value = result.mirror || '';
-				state.textContent = result.mirror ? tr('Saved. Downloads try the mirror first, then GitHub.') : tr('Saved. Downloads use GitHub directly.');
+				state.textContent = tr('Saved. Mirror setting stored. Online upgrade function is disabled.');
 			}
 		}
 		catch (e) { state.textContent = e.message; }
@@ -175,7 +175,7 @@ function mirrorSection(data) {
 	} }, tr('Save'));
 	if (!writable()) { input.disabled = true; save.disabled = true; }
 
-	return section([tr('Download mirror'), hint(tr('Optional. If GitHub downloads are slow or blocked, enter an HTTPS prefix that proxies GitHub links, for example https://mirror.example.com/ for https://mirror.example.com/https://github.com/…. Release information is still read from GitHub, and the downloaded file must match the size and SHA-256 published there; GitHub is tried if the mirror fails.'))], null, [
+	return section([tr('Download mirror'), hint(tr('Mirror setting reserved. Online upgrade function is disabled.'))], null, [
 		E('div', { 'class': 'cbi-value' }, [
 			E('label', { 'class': 'cbi-value-title', 'for': 'carbon-mirror' }, tr('Mirror prefix')),
 			E('div', { 'class': 'cbi-value-field cb-update-field' }, [input, save, state])
@@ -183,90 +183,23 @@ function mirrorSection(data) {
 	]);
 }
 
-/* ---- online updates: status polled every 2 s; returns the sections and the poll ---- */
+/* ---- online updates: DISABLED ---- */
 function updateSections(data) {
-	let current = data, pending = false, renderedNotes;
-	const installedText = E('strong');
-	const latestText = E('strong');
-	const stateText = E('p', { 'role': 'status', 'aria-live': 'polite' });
-	const errorText = E('p', { 'role': 'alert', 'class': 'alert-message warning', 'hidden': true });
-	const securityText = E('p', { 'class': 'cbi-section-descr' });
-	const notes = E('div', { 'class': 'cb-release-notes', 'tabindex': '0', 'role': 'region', 'aria-label': tr('Release notes') });
-	const logs = E('pre', { 'style': 'white-space:pre-wrap;overflow-wrap:anywhere;max-height:16rem;overflow:auto' });
-	const refresh = E('button', { 'class': 'cbi-button cbi-button-action', 'click': () => {
-		ui.menu.flushCache();
-		window.location.reload();
-	} }, tr('Reload page'));
-	const checkButton = E('button', { 'class': 'cbi-button cbi-button-action', 'click': () => run(check) }, tr('Check for updates'));
-	const updateButton = E('button', { 'class': 'cbi-button cbi-button-positive', 'click': () => {
-		if (!current.can_upgrade || current.busy || pending || !writable()) return;
-		const version = current.latest;
-		ui.showModal(tr('Update Carbon'), [
-			E('p', {}, tr('Install version %s? Your theme preferences will be retained. Do not power off the router during installation.', version)),
-			E('div', { 'class': 'right' }, [
-				E('button', { 'class': 'cbi-button', 'click': ui.hideModal }, tr('Cancel')), ' ',
-				E('button', { 'class': 'cbi-button cbi-button-positive', 'click': () => { ui.hideModal(); return run(() => upgrade(version)); } }, tr('Confirm update'))
-			])
-		]);
-	} }, tr('Install update'));
-
-	function paint(value) {
-		current = value;
-		installedText.textContent = value.current || tr('Unknown');
-		latestText.textContent = value.latest || tr('Not checked');
-		const labels = {
-			checking: N_('Checking for updates…'), downloading: N_('Downloading update…'),
-			verifying: N_('Verifying update…'), installing: N_('Installing update…'),
-			success: N_('Update complete. Reload this page to use the new version.'),
-			failed: N_('Update failed.')
-		};
-		stateText.textContent = labels[value.state] ? tr(labels[value.state]) :
-			value.can_upgrade ? tr('A new version is available.') :
-			value.latest && value.current === value.latest ? tr('You are using the latest version.') : tr('Check the latest stable Carbon release.');
-		const issue = value.error || value.reason;
-		errorText.textContent = message(issue); errorText.hidden = !issue;
-		securityText.textContent = value.manager === 'apk' ?
-			tr('APK signature, SHA-256 and file size are verified before installation. Your signature checks remain enabled.') :
-			tr('IPK updates are downloaded over HTTPS and checked against the release SHA-256 and file size.');
-		// Keep selection, focus and scroll position while status polls every 2s.
-		const nextNotes = value.notes || '';
-		if (nextNotes !== renderedNotes) {
-			if (nextNotes) notes.innerHTML = markdown.render(nextNotes);
-			else notes.textContent = tr('Release notes will appear after checking.');
-			renderedNotes = nextNotes;
-		}
-		logs.textContent = value.log || tr('No installation log yet.');
-		checkButton.disabled = pending || value.busy || !!value.reason;
-		updateButton.disabled = pending || value.busy || !value.can_upgrade || !writable();
-		refresh.hidden = value.state !== 'success';
-	}
-	async function sync() {
-		try { paint(await status()); }
-		catch (e) {
-			errorText.hidden = false;
-			errorText.textContent = tr('Connection interrupted. Progress will resume when LuCI reconnects. %s', e.message);
-			checkButton.disabled = true; updateButton.disabled = true;
-		}
-	}
-	async function run(action) {
-		if (pending) return;
-		pending = true; paint(current);
-		let issue;
-		try { const result = await action(); if (result.error) issue = message(result.error); }
-		catch (e) { issue = e.message; }
-		finally { pending = false; await sync(); }
-		if (issue) { errorText.textContent = issue; errorText.hidden = false; }
-	}
-	paint(data);
+	const installedText = E('strong', { textContent: data.current || tr('Unknown') });
+	const latestText = E('strong', { textContent: tr('Disabled') });
+	const stateText = E('p', { 'role': 'status', 'aria-live': 'polite', textContent: tr('Online upgrade function is disabled. Manual reinstall required if you need to update.') });
+	const securityText = E('p', { 'class': 'cbi-section-descr', textContent: tr('Automatic checking and installing updates have been turned off.') });
+	const notes = E('div', { 'class': 'cb-release-notes', 'tabindex': '0', 'role': 'region', 'aria-label': tr('Release notes'), textContent: tr('Release notes unavailable (update disabled).') });
+	const logs = E('pre', { 'style': 'white-space:pre-wrap;overflow-wrap:anywhere;max-height:16rem;overflow:auto', textContent: tr('No log.') });
 
 	return {
-		sync: sync,
+		sync: () => {},
 		main: section(tr('Updates'), null, [
 			E('div', { 'class': 'cb-update-versions' }, [
 				E('div', {}, [E('p', {}, tr('Installed version')), installedText]),
 				E('div', {}, [E('p', {}, tr('Latest stable version')), latestText])
-			]), stateText, errorText, securityText,
-			actions([checkButton, updateButton, refresh]),
+			]), stateText, securityText,
+			actions([]),
 			external('https://github.com/mrjoechen/luci-theme-carbon/releases', tr('View releases on GitHub'))
 		]),
 		notes: section(tr('Release notes'), null, [notes]),
@@ -279,10 +212,10 @@ return view.extend({
 	render(data) {
 		const updates = updateSections(data);
 		this.pollStatus = updates.sync;
-		poll.add(updates.sync, 2);
+		// poll.add(updates.sync, 2); // 关闭2秒轮询
 		return E('div', { 'class': 'cbi-map cb-update' }, [
 			E('h2', {}, tr('Carbon Theme Settings')),
-			E('p', { 'class': 'cbi-map-descr' }, tr('Personalise the logo and update the theme without changing your router configuration.')),
+			E('p', { 'class': 'cbi-map-descr' }, tr('Personalise the logo. Online upgrade is disabled.')),
 			logoSection(data),
 			updates.main,
 			updates.notes,
