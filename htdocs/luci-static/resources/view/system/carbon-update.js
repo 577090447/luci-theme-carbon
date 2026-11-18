@@ -1,19 +1,15 @@
 'use strict';
 'require view';
 'require rpc';
-'require poll';
-'require ui';
 'require request';
-'require carbon.markdown as markdown';
+'require ui';
 
 /*
- * System → Carbon Theme Settings. ONLINE UPGRADE DISABLED
- * Still keep logo & mirror config
+ * System → Carbon Theme Settings.
+ * ONLINE UPGRADE COMPLETELY REMOVED
+ * Only keep logo & mirror config
  */
 const call = (method, params) => rpc.declare({ object: 'luci.carbon_update', method: method, params: params, expect: { '': {} }, raise: true });
-const status = call('status');
-const check = call('check');
-const upgrade = call('upgrade', [ 'version' ]);
 const configure = call('configure', [ 'mirror' ]);
 const setLogo = call('logo', [ 'action' ]);
 
@@ -31,33 +27,7 @@ const MIRROR_RE = /^https:\/\/[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5
 const N_ = s => s;
 const tr = (s, ...args) => (window.Carbon && typeof window.Carbon.t === 'function') ?
 	window.Carbon.t(s, ...args) : (args.length ? _(s).format(...args) : _(s));
-/* backend error codes → messages */
-const errors = {
-	/* updates */
-	network: N_('Download failed. Check internet access, DNS, router time and GitHub availability.'),
-	metadata: N_('Release metadata or package version is invalid. Nothing was installed.'),
-	checksum: N_('The downloaded file failed its size or SHA-256 check. Nothing was installed.'),
-	signature: N_('APK signature verification failed. Nothing was installed; signature checks remain enabled.'),
-	install: N_('The package manager could not finish installation. See the log below.'),
-	version: N_('The installed version does not match the release. Check the installation log.'),
-	settings: N_('The package was installed, but restoring theme preferences failed. Check System → Language and Style.'),
-	interrupted: N_('The update was interrupted. Check the installed version before trying again.'),
-	stale: N_('The release changed, expired, or is no longer newer. Check for updates again.'),
-	invalid: N_('Invalid update request.'),
-	busy: N_('Another update operation is running.'),
-	dependencies: N_('Install curl, ca-bundle and flock, and restore the Carbon public key if missing.'),
-	manual_install: N_('apk/opkg has no record of this Carbon install (for example, it was copied by an older carbon-install.sh). Run the latest carbon-install.sh once, or install the APK/IPK package, to enable online upgrades.'),
-	space: N_('Not enough temporary storage or unable to create update files.'),
-	state: N_('Unable to access update state storage.'),
-	invalid_mirror: N_('Enter an HTTPS mirror prefix such as https://mirror.example.com/ (letters, digits and . _ ~ % + - only).'),
-	/* logo */
-	logo_missing: N_('The uploaded file did not reach the router. Try again.'),
-	logo_size: N_('The logo must be at most 256 KB.'),
-	logo_type: N_('Unsupported file. Use a PNG, JPEG, WebP, GIF or SVG image.'),
-	logo_unsafe: N_('This SVG contains scripts, event handlers, links or embedded documents and was rejected. Save it as a plain SVG or PNG.'),
-	logo_denied: N_('Permission denied. Log out and log in again once after updating Carbon, then retry.')
-};
-const message = code => errors[code] ? tr(errors[code]) : String(code || '');
+
 const writable = () => L.hasViewPermission();
 
 /* LuCI's E() renders a null array item as the text "null": never pass one */
@@ -85,7 +55,6 @@ function hint(text) {
 	wrap = E('span', { 'class': 'cb-hint' }, [button, E('span', { 'class': 'cb-hint-bubble', 'id': id, 'role': 'tooltip' }, [text])]);
 	return wrap;
 }
-const actions = (children) => E('div', { 'class': 'cb-update-actions' }, children);
 const external = (href, text) => E('a', { 'href': href, 'target': '_blank', 'rel': 'noopener noreferrer' }, text);
 
 /* ---- custom logo: preview, upload (cgi-upload → rpcd validation), restore default ---- */
@@ -100,8 +69,8 @@ function logoSection(data) {
 			const file = input.files && input.files[0];
 			input.value = '';
 			if (!file) return;
-			if (!LOGO_TYPES.test(file.type) && !LOGO_NAMES.test(file.name)) { state.textContent = message('logo_type'); return; }
-			if (!file.size || file.size > LOGO_MAX) { state.textContent = message('logo_size'); return; }
+			if (!LOGO_TYPES.test(file.type) && !LOGO_NAMES.test(file.name)) { state.textContent = tr('Unsupported file. Use a PNG, JPEG, WebP, GIF or SVG image.'); return; }
+			if (!file.size || file.size > LOGO_MAX) { state.textContent = tr('The logo must be at most 256 KB.'); return; }
 			return apply(() => upload(file), tr('Logo saved.'));
 		}
 	});
@@ -138,7 +107,7 @@ function logoSection(data) {
 		state.textContent = tr('Saving…');
 		try {
 			const result = await action();
-			if (result.error) state.textContent = message(result.error);
+			if (result.error) state.textContent = tr('Permission denied. Log out and log in again once after updating Carbon, then retry.');
 			else { logoUrl = result.logo || ''; state.textContent = done; }
 		}
 		catch (e) { state.textContent = e.message; }
@@ -151,7 +120,7 @@ function logoSection(data) {
 	]);
 }
 
-/* ---- download mirror for online updates ---- */
+/* ---- download mirror setting ---- */
 function mirrorSection(data) {
 	const input = E('input', {
 		'class': 'cbi-input-text', 'id': 'carbon-mirror', 'type': 'url', 'inputmode': 'url', 'maxlength': '200',
@@ -160,14 +129,14 @@ function mirrorSection(data) {
 	const state = E('span', { 'class': 'cb-update-note', 'role': 'status', 'aria-live': 'polite' });
 	const save = E('button', { 'class': 'cbi-button cbi-button-save', 'click': async () => {
 		const value = input.value.trim();
-		if (value && !MIRROR_RE.test(value)) { state.textContent = message('invalid_mirror'); return; }
+		if (value && !MIRROR_RE.test(value)) { state.textContent = tr('Enter an HTTPS mirror prefix such as https://mirror.example.com/ (letters, digits and . _ ~ % + - only).'); return; }
 		save.disabled = true;
 		try {
 			const result = await configure(value);
-			if (result.error) state.textContent = message(result.error);
+			if (result.error) state.textContent = tr('Save failed.');
 			else {
 				input.value = result.mirror || '';
-				state.textContent = tr('Saved. Mirror setting stored. Online upgrade function is disabled.');
+				state.textContent = tr('Saved. Mirror setting stored.');
 			}
 		}
 		catch (e) { state.textContent = e.message; }
@@ -175,7 +144,7 @@ function mirrorSection(data) {
 	} }, tr('Save'));
 	if (!writable()) { input.disabled = true; save.disabled = true; }
 
-	return section([tr('Download mirror'), hint(tr('Mirror setting reserved. Online upgrade function is disabled.'))], null, [
+	return section([tr('Download mirror'), hint(tr('Mirror setting reserved for future use.'))], null, [
 		E('div', { 'class': 'cbi-value' }, [
 			E('label', { 'class': 'cbi-value-title', 'for': 'carbon-mirror' }, tr('Mirror prefix')),
 			E('div', { 'class': 'cbi-value-field cb-update-field' }, [input, save, state])
@@ -183,44 +152,15 @@ function mirrorSection(data) {
 	]);
 }
 
-/* ---- online updates: DISABLED ---- */
-function updateSections(data) {
-	const installedText = E('strong', { textContent: data.current || tr('Unknown') });
-	const latestText = E('strong', { textContent: tr('Disabled') });
-	const stateText = E('p', { 'role': 'status', 'aria-live': 'polite', textContent: tr('Online upgrade function is disabled. Manual reinstall required if you need to update.') });
-	const securityText = E('p', { 'class': 'cbi-section-descr', textContent: tr('Automatic checking and installing updates have been turned off.') });
-	const notes = E('div', { 'class': 'cb-release-notes', 'tabindex': '0', 'role': 'region', 'aria-label': tr('Release notes'), textContent: tr('Release notes unavailable (update disabled).') });
-	const logs = E('pre', { 'style': 'white-space:pre-wrap;overflow-wrap:anywhere;max-height:16rem;overflow:auto', textContent: tr('No log.') });
-
-	return {
-		sync: () => {},
-		main: section(tr('Updates'), null, [
-			E('div', { 'class': 'cb-update-versions' }, [
-				E('div', {}, [E('p', {}, tr('Installed version')), installedText]),
-				E('div', {}, [E('p', {}, tr('Latest stable version')), latestText])
-			]), stateText, securityText,
-			actions([]),
-			external('https://github.com/mrjoechen/luci-theme-carbon/releases', tr('View releases on GitHub'))
-		]),
-		notes: section(tr('Release notes'), null, [notes]),
-		log: E('details', { 'class': 'cbi-section' }, [E('summary', {}, tr('Installation log')), logs])
-	};
-}
 
 return view.extend({
-	load() { return status(); },
+	load() { return call('status')(); },
 	render(data) {
-		const updates = updateSections(data);
-		this.pollStatus = updates.sync;
-		// poll.add(updates.sync, 2); // 关闭2秒轮询
 		return E('div', { 'class': 'cbi-map cb-update' }, [
 			E('h2', {}, tr('Carbon Theme Settings')),
-			E('p', { 'class': 'cbi-map-descr' }, tr('Personalise the logo. Online upgrade is disabled.')),
+			E('p', { 'class': 'cbi-map-descr' }, tr('Personalise the logo and mirror source.')),
 			logoSection(data),
-			updates.main,
-			updates.notes,
-			mirrorSection(data),
-			updates.log
+			mirrorSection(data)
 		]);
 	},
 	handleSave: null,
