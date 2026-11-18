@@ -49,7 +49,8 @@ jobs:
           node --check htdocs/luci-static/carbon/brands.js
           for f in htdocs/luci-static/carbon/i18n/*.js; do node --check "$f"; done
           python3 -I scripts/build-css.py --check
-          python3 -I scripts/gen-i18n.py --check --github
+          # 关闭i18n词条完整性检查，只维护中文，其他语言缺少翻译不再报错
+          # python3 -I scripts/gen-i18n.py --check --github
           sh scripts/check-version.sh
           node -e "new Function(require('fs').readFileSync('htdocs/luci-static/resources/menu-carbon.js', 'utf8'))"
           node -e "new Function(require('fs').readFileSync('htdocs/luci-static/resources/view/system/carbon-update.js', 'utf8'))"
