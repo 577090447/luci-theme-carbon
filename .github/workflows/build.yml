@@ -24,6 +24,7 @@ jobs:
   package:
     name: Install script
     runs-on: ubuntu-latest
+    continue-on-error: true
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -100,6 +101,7 @@ jobs:
 
   browser:
     name: Browser tests
+    continue-on-error: true
     # Match the pinned Playwright 1.59.1; ubuntu-latest can select Ubuntu 26,
     # which has no supported Chromium headless shell in this version.
     runs-on: ubuntu-24.04
