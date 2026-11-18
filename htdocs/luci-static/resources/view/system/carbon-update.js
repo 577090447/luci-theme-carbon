@@ -1,40 +1,45 @@
 'use strict';
 'require view';
 'require rpc';
-'require request';
+'require poll';
 'require ui';
+'require request';
+'require carbon.markdown as markdown';
 
 /*
  * System → Carbon Theme Settings.
- * ONLINE UPGRADE COMPLETELY REMOVED
- * Only keep logo & mirror config
+ * 【修改版：移除全部在线升级功能，仅保留自定义Logo + 镜像设置】
  */
 const call = (method, params) => rpc.declare({ object: 'luci.carbon_update', method: method, params: params, expect: { '': {} }, raise: true });
+const status = call('status');
 const configure = call('configure', [ 'mirror' ]);
 const setLogo = call('logo', [ 'action' ]);
 
 /* Must match the rpcd backend and its ACL (the only file cgi-upload may write). */
 const LOGO_UPLOAD = '/tmp/carbon-logo.upload';
 const LOGO_MAX = 262144;
-/* fixed path: this page also works while another theme is active */
 const LOGO_DEFAULT = '/luci-static/carbon/logo.svg';
 const LOGO_TYPES = /^image\/(png|jpeg|gif|webp|svg\+xml)$/;
 const LOGO_NAMES = /\.(png|jpe?g|gif|webp|svg)$/i;
 const MIRROR_RE = /^https:\/\/[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?(\/[A-Za-z0-9._~%+-]+)*\/?$/;
 
-/* Theme strings: Carbon's bundled catalogue when the theme is active, otherwise
-   LuCI's (luci-i18n-carbon-* packages built from po/). */
 const N_ = s => s;
 const tr = (s, ...args) => (window.Carbon && typeof window.Carbon.t === 'function') ?
 	window.Carbon.t(s, ...args) : (args.length ? _(s).format(...args) : _(s));
-
+const errors = {
+	/* logo */
+	logo_missing: N_('The uploaded file did not reach the router. Try again.'),
+	logo_size: N_('The logo must be at most 256 KB.'),
+	logo_type: N_('Unsupported file. Use a PNG, JPEG, WebP, GIF or SVG image.'),
+	logo_unsafe: N_('This SVG contains scripts, event handlers, links or embedded documents and was rejected. Save it as a plain SVG or PNG.'),
+	logo_denied: N_('Permission denied. Log out and log in again once after updating Carbon, then retry.'),
+	invalid_mirror: N_('Enter an HTTPS mirror prefix such as https://mirror.example.com/ (letters, digits and . _ ~ % + - only).'),
+};
+const message = code => errors[code] ? tr(errors[code]) : String(code || '');
 const writable = () => L.hasViewPermission();
 
-/* LuCI's E() renders a null array item as the text "null": never pass one */
 const section = (title, description, children) => E('section', { 'class': 'cbi-section' },
 	[E('h3', {}, [].concat(title))].concat(description ? [E('p', { 'class': 'cbi-section-descr' }, description)] : [], children));
-/* "?" toggletip: hover or keyboard focus shows the text, a click or tap pins it,
-   Esc or a click elsewhere closes it. Keeps long explanations off the page. */
 let hintSeq = 0;
 function hint(text) {
 	const id = 'cb-hint-' + (++hintSeq);
@@ -55,9 +60,10 @@ function hint(text) {
 	wrap = E('span', { 'class': 'cb-hint' }, [button, E('span', { 'class': 'cb-hint-bubble', 'id': id, 'role': 'tooltip' }, [text])]);
 	return wrap;
 }
+const actions = (children) => E('div', { 'class': 'cb-update-actions' }, children);
 const external = (href, text) => E('a', { 'href': href, 'target': '_blank', 'rel': 'noopener noreferrer' }, text);
 
-/* ---- custom logo: preview, upload (cgi-upload → rpcd validation), restore default ---- */
+/* ---- custom logo: preview, upload, restore default ---- */
 function logoSection(data) {
 	let logoUrl = data.logo || '';
 	const preview = E('img', { 'class': 'cb-logo-preview', 'alt': tr('Current logo') });
@@ -69,8 +75,8 @@ function logoSection(data) {
 			const file = input.files && input.files[0];
 			input.value = '';
 			if (!file) return;
-			if (!LOGO_TYPES.test(file.type) && !LOGO_NAMES.test(file.name)) { state.textContent = tr('Unsupported file. Use a PNG, JPEG, WebP, GIF or SVG image.'); return; }
-			if (!file.size || file.size > LOGO_MAX) { state.textContent = tr('The logo must be at most 256 KB.'); return; }
+			if (!LOGO_TYPES.test(file.type) && !LOGO_NAMES.test(file.name)) { state.textContent = message('logo_type'); return; }
+			if (!file.size || file.size > LOGO_MAX) { state.textContent = message('logo_size'); return; }
 			return apply(() => upload(file), tr('Logo saved.'));
 		}
 	});
@@ -82,7 +88,6 @@ function logoSection(data) {
 		preview.src = src;
 		uploadButton.disabled = !writable();
 		resetButton.disabled = !logoUrl || !writable();
-		/* the rest of the page follows without a reload */
 		document.querySelectorAll('.cb-brand-logo, .cb-hero-icon img').forEach((img) => {
 			img.src = src;
 			if (logoUrl) img.setAttribute('data-custom', ''); else img.removeAttribute('data-custom');
@@ -107,7 +112,7 @@ function logoSection(data) {
 		state.textContent = tr('Saving…');
 		try {
 			const result = await action();
-			if (result.error) state.textContent = tr('Permission denied. Log out and log in again once after updating Carbon, then retry.');
+			if (result.error) state.textContent = message(result.error);
 			else { logoUrl = result.logo || ''; state.textContent = done; }
 		}
 		catch (e) { state.textContent = e.message; }
@@ -120,7 +125,7 @@ function logoSection(data) {
 	]);
 }
 
-/* ---- download mirror setting ---- */
+/* ---- download mirror（保留入口，只是不再用于在线升级） ---- */
 function mirrorSection(data) {
 	const input = E('input', {
 		'class': 'cbi-input-text', 'id': 'carbon-mirror', 'type': 'url', 'inputmode': 'url', 'maxlength': '200',
@@ -129,14 +134,14 @@ function mirrorSection(data) {
 	const state = E('span', { 'class': 'cb-update-note', 'role': 'status', 'aria-live': 'polite' });
 	const save = E('button', { 'class': 'cbi-button cbi-button-save', 'click': async () => {
 		const value = input.value.trim();
-		if (value && !MIRROR_RE.test(value)) { state.textContent = tr('Enter an HTTPS mirror prefix such as https://mirror.example.com/ (letters, digits and . _ ~ % + - only).'); return; }
+		if (value && !MIRROR_RE.test(value)) { state.textContent = message('invalid_mirror'); return; }
 		save.disabled = true;
 		try {
 			const result = await configure(value);
-			if (result.error) state.textContent = tr('Save failed.');
+			if (result.error) state.textContent = message(result.error);
 			else {
 				input.value = result.mirror || '';
-				state.textContent = tr('Saved. Mirror setting stored.');
+				state.textContent = tr('Saved.');
 			}
 		}
 		catch (e) { state.textContent = e.message; }
@@ -144,7 +149,7 @@ function mirrorSection(data) {
 	} }, tr('Save'));
 	if (!writable()) { input.disabled = true; save.disabled = true; }
 
-	return section([tr('Download mirror'), hint(tr('Mirror setting reserved for future use.'))], null, [
+	return section([tr('Download mirror'), hint(tr('Mirror setting preserved. Online theme upgrade function has been disabled.'))], null, [
 		E('div', { 'class': 'cbi-value' }, [
 			E('label', { 'class': 'cbi-value-title', 'for': 'carbon-mirror' }, tr('Mirror prefix')),
 			E('div', { 'class': 'cbi-value-field cb-update-field' }, [input, save, state])
@@ -152,13 +157,13 @@ function mirrorSection(data) {
 	]);
 }
 
-
 return view.extend({
-	load() { return call('status')(); },
+	load() { return status(); },
 	render(data) {
+		// 移除 poll 轮询、移除updateSections升级整套UI
 		return E('div', { 'class': 'cbi-map cb-update' }, [
 			E('h2', {}, tr('Carbon Theme Settings')),
-			E('p', { 'class': 'cbi-map-descr' }, tr('Personalise the logo and mirror source.')),
+			E('p', { 'class': 'cbi-map-descr' }, tr('Personalise the logo. Online theme upgrade function is disabled.')),
 			logoSection(data),
 			mirrorSection(data)
 		]);
